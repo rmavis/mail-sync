@@ -1,0 +1,73 @@
+#!/usr/bin/env ruby
+
+# This is the map of notmuch tags to Maildir directories.
+def dir_map
+  {
+    'archive' => 'Archive',
+    'trash' => 'Trash',
+    'spam' => 'Spam',
+  }
+end
+
+# This is the command to use to run mbsync.
+def mbsync_command
+  "mbsync -c ~/.config/mbsync/config"
+end
+
+# Currently, the only valid arguments are account names.
+def main(args)
+  # Run this first so the changes will be pushed to the server.
+  if (args.length == 0)
+    sync_notmuch!
+    sync_maildirs!(args)
+  end
+
+  if (args.include?('-l') || args.include?('--local'))
+    sync_notmuch!
+  end
+
+  if (args.include?('-r') || args.include?('--remote'))
+    sync_maildirs!(args.select { |arg| arg[0] != '-'})
+  end
+
+  return true
+end
+
+def sync_notmuch!
+  # Move the files to the appropriate directories.
+  dir_map.each do |tag,dir|
+    `notmuch search --output=files tag:#{tag}`.split("\n").each do |file|
+      new_file = file.sub(/\/[^\/]+\/cur\//, "/#{dir}/cur/")
+      if (file != new_file)
+        # Remove the mbsync UIDs. It will add new ones later.
+        new_file = new_file.sub(/(,U=([0-9]+)):/, ':')
+        puts "Moving '#{file}'\nto '#{new_file}}"
+        `mv "#{file}" "#{new_file}"`
+      end
+    end
+  end
+
+  # Update the notmuch database.
+  `notmuch new`
+end
+
+def sync_maildirs!(accounts = [ ])
+  # Sync the accounts.
+  if (accounts.length == 0)
+    `#{mbsync_command} -a`
+  else
+    accounts.each do |account|
+      puts "Syncing account `#{account}`"
+      `#{mbsync_command} "#{account}"`
+    end
+  end
+
+  # Update the notmuch database.
+  `notmuch new`
+end
+
+# maybe delete the trash and spam files?
+# notmuch search --output=files tag:deleted | tr '\n' '\0' | xargs -0 -L 1 rm
+# via https://www.emacswiki.org/emacs/NotMuch
+
+main(ARGV)
